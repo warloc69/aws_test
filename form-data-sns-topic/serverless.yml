@@ -1,0 +1,121 @@
+org: warloc69
+app: sms-sender
+service: form-data-sns-topic
+
+frameworkVersion: '2'
+
+provider:
+  name: aws
+  runtime: nodejs12.x
+  lambdaHashingVersion: '20201221'
+  stage: dev
+
+constructs:
+  jobs:
+    type: queue
+    worker:
+      handler: handler.consumer
+
+functions:
+#  producer:
+#    handler: handler.producer
+#    events:
+#      - http:
+#          method: post
+#          path: produce
+#    environment:
+#      QUEUE_URL: ${construct:jobs.queueUrl}
+
+
+
+resources:
+  Resources:
+    SmsQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: "SmsQueue"
+    MySNSTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: "PostDataHolderTopic"
+    TopicWithQueue:
+      Type: AWS::SNS::Topic
+      Properties:
+        Subscription:
+          - Endpoint:
+              Fn::GetAtt:
+                - "SmsQueue"
+                - "Arn"
+            Protocol: "sqs"
+        TopicName: "SmsTopic"
+    FormDataProxyAPI:
+      Type: AWS::ApiGateway::RestApi
+      Properties:
+        Name: FormDataProxyAPI
+    GatewayRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - apigateway.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Path: "/"
+        Policies:
+          - PolicyName: GatewayRolePolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - sns:Publish
+                  Resource: "*" #grants access to all topics,
+                  #for production use, this should be more specific
+                - Effect: Allow #allow logging (not essential to the solution)
+                  Action:
+                    - logs:PutLogEvents
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                  Resource: "*"
+    ApiGatewayGETMethod:
+      Type: AWS::ApiGateway::Method
+      Properties:
+        AuthorizationType: NONE
+        HttpMethod: GET
+        RequestParameters: #request parameters need to be defined for the mapping
+          method.request.querystring.message: false #payload of the SNS message
+          method.request.querystring.subject: false #subject of the SNS message
+          method.request.querystring.topic: false #destination topic arn
+        Integration:
+          Type: AWS
+          Credentials:
+            Fn::GetAtt: [ GatewayRole, Arn ] #use the already defined role
+          Uri: #required URI for using SNS service
+            Fn::Join:
+              - ""
+              - - "arn:aws:apigateway:"
+                - Ref: AWS::Region
+                - ":sns:action/Publish"
+          IntegrationHttpMethod: GET #SNS allows GET operations
+          RequestParameters: #parameter mapping defined by the AWS API.
+            integration.request.querystring.TopicArn: "method.request.querystring.topic"
+            integration.request.querystring.Subject: "method.request.querystring.subject"
+            integration.request.querystring.Message: "method.request.querystring.message"
+          IntegrationResponses: #map all responses to a default response.
+            - StatusCode: 200
+              ResponseTemplates: #default response
+                application/json: '{"status":"OK"}'
+        MethodResponses:
+          - StatusCode: 200
+        ResourceId: #attaching the GET method to the root resource of the API
+          Fn::GetAtt: [ FormDataProxyAPI , RootResourceId ]
+        RestApiId: !Ref FormDataProxyAPI
+
+plugins:
+  - serverless-lift
+
+
