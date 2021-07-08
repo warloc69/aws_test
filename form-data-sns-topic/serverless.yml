@@ -10,22 +10,18 @@ provider:
   lambdaHashingVersion: '20201221'
   stage: dev
 
-constructs:
-  jobs:
-    type: queue
-    worker:
-      handler: handler.consumer
-
 functions:
-#  producer:
-#    handler: handler.producer
-#    events:
-#      - http:
-#          method: post
-#          path: produce
-#    environment:
-#      QUEUE_URL: ${construct:jobs.queueUrl}
-
+  hello:
+    handler: handler.consumer
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - SmsQueue
+              - Arn
+    environment:
+      REGION: "us-east-1"
+#    role: SmsSenderRole
 
 
 resources:
@@ -34,10 +30,6 @@ resources:
       Type: AWS::SQS::Queue
       Properties:
         QueueName: "SmsQueue"
-    MySNSTopic:
-      Type: AWS::SNS::Topic
-      Properties:
-        TopicName: "PostDataHolderTopic"
     TopicWithQueue:
       Type: AWS::SNS::Topic
       Properties:
@@ -52,6 +44,26 @@ resources:
       Type: AWS::ApiGateway::RestApi
       Properties:
         Name: FormDataProxyAPI
+    SmsSenderRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: SmsSenderRolePolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - sns:Publish
+                  Resource: "*"
     GatewayRole:
       Type: AWS::IAM::Role
       Properties:
@@ -73,9 +85,8 @@ resources:
                 - Effect: Allow
                   Action:
                     - sns:Publish
-                  Resource: "*" #grants access to all topics,
-                  #for production use, this should be more specific
-                - Effect: Allow #allow logging (not essential to the solution)
+                  Resource: "*"
+                - Effect: Allow
                   Action:
                     - logs:PutLogEvents
                     - logs:CreateLogGroup
@@ -85,33 +96,30 @@ resources:
       Type: AWS::ApiGateway::Method
       Properties:
         AuthorizationType: NONE
-        HttpMethod: GET
-        RequestParameters: #request parameters need to be defined for the mapping
-          method.request.querystring.message: false #payload of the SNS message
-          method.request.querystring.subject: false #subject of the SNS message
-          method.request.querystring.topic: false #destination topic arn
+        HttpMethod: POST
+        RequestParameters:
+          method.request.querystring.body: false
         Integration:
           Type: AWS
           Credentials:
-            Fn::GetAtt: [ GatewayRole, Arn ] #use the already defined role
-          Uri: #required URI for using SNS service
+            Fn::GetAtt: [ GatewayRole, Arn ]
+          Uri:
             Fn::Join:
               - ""
               - - "arn:aws:apigateway:"
                 - Ref: AWS::Region
                 - ":sns:action/Publish"
-          IntegrationHttpMethod: GET #SNS allows GET operations
-          RequestParameters: #parameter mapping defined by the AWS API.
-            integration.request.querystring.TopicArn: "method.request.querystring.topic"
-            integration.request.querystring.Subject: "method.request.querystring.subject"
-            integration.request.querystring.Message: "method.request.querystring.message"
-          IntegrationResponses: #map all responses to a default response.
+          IntegrationHttpMethod: GET
+          RequestParameters:
+            integration.request.querystring.TopicArn: !Sub "'${TopicWithQueue}'"
+            integration.request.querystring.Message: "method.request.querystring.body"
+          IntegrationResponses:
             - StatusCode: 200
-              ResponseTemplates: #default response
+              ResponseTemplates:
                 application/json: '{"status":"OK"}'
         MethodResponses:
           - StatusCode: 200
-        ResourceId: #attaching the GET method to the root resource of the API
+        ResourceId:
           Fn::GetAtt: [ FormDataProxyAPI , RootResourceId ]
         RestApiId: !Ref FormDataProxyAPI
 

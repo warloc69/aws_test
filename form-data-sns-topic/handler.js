@@ -1,61 +1,44 @@
-const { SNS } = require("aws-sdk");
+const { AWS } = require("aws-sdk");
+AWS.config.update({region: process.env.REGION});
 
-// const sqs = new SQS();
-
-// const producer = async (event) => {
-//   let statusCode = 200;
-//   let message;
-//
-//   if (!event.body) {
-//     return {
-//       statusCode: 400,
-//       body: JSON.stringify({
-//         message: "No body was found",
-//       }),
-//     };
-//   }
-//
-//   try {
-//     await sqs
-//       .sendMessage({
-//         QueueUrl: process.env.QUEUE_URL,
-//         MessageBody: event.body,
-//         MessageAttributes: {
-//           AttributeName: {
-//             StringValue: "Attribute Value",
-//             DataType: "String",
-//           },
-//         },
-//       })
-//       .promise();
-//
-//     message = "Message accepted!";
-//   } catch (error) {
-//     console.log(error);
-//     message = error;
-//     statusCode = 500;
-//   }
-//
-//   return {
-//     statusCode,
-//     body: JSON.stringify({
-//       message,
-//     }),
-//   };
-// };
+function getSmsParams(record) {
+    const {body} = record;
+    try {
+        let parsedBody = JSON.parse(body)
+        if (!parsedBody.Message) {
+            return null;
+        }
+        let message = JSON.parse(decodeURI(parsedBody.Message))
+        return {
+            Message: message.message,
+            PhoneNumber: message.phone,
+        };
+    } catch (err) {
+        console.error(err, err.stack);
+        return null;
+    }
+}
 
 const consumer = async (event) => {
-  for (const record of event.Records) {
-    const messageAttributes = record.messageAttributes;
-    console.log(
-      "Message Attributte: ",
-      messageAttributes.AttributeName.stringValue
-    );
-    console.log("Message Body: ", record.body);
-  }
+    event.Records.forEach(record => {
+        let params = getSmsParams(record);
+        if(params === null) {
+            return;
+        }
+        let publishTextPromise = new AWS.SNS({apiVersion: '2010-03-31'}).publish(params).promise();
+
+        publishTextPromise.then(
+            function (data) {
+                console.log("MessageID is " + data.MessageId);
+            }).catch(
+            function (err) {
+                console.error(err, err.stack);
+            });
+
+    });
+    return {};
 };
 
 module.exports = {
-  // producer,
-  consumer,
+    consumer,
 };
