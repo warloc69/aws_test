@@ -5,7 +5,7 @@ import {
 import {SmsConfig} from "./types/types"
 import {SNS} from 'aws-sdk'
 
-function getSmsParams(record: SQSRecord): SmsConfig | null {
+export function getSmsParams(record: SQSRecord): SmsConfig | null {
     const {body} = record;
     try {
         const parsedBody = JSON.parse(body)
