@@ -3,9 +3,7 @@ import {
 } from "aws-lambda";
 
 import {SmsConfig} from "./types/types"
-
-const {AWS} = require("aws-sdk");
-AWS.config.update({region: process.env.REGION});
+import {SNS} from 'aws-sdk'
 
 function getSmsParams(record: SQSRecord): SmsConfig | null {
     const {body} = record;
@@ -32,7 +30,7 @@ export const consumer = async (event: SQSEvent) => {
         if (params === null) {
             return;
         }
-        const publishTextPromise = new AWS.SNS({apiVersion: '2010-03-31'}).publish(params).promise();
+        const publishTextPromise = new SNS({apiVersion: '2010-03-31'}).publish(params).promise();
 
         publishTextPromise.then(
             (data: any) => {
