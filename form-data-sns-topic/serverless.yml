@@ -124,6 +124,7 @@ resources:
         RestApiId: !Ref FormDataProxyAPI
 
 plugins:
+  - serverless-plugin-typescript
+  - serverless-offline
   - serverless-lift
-
 
